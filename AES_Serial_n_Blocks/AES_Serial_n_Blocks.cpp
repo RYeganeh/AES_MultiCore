@@ -153,15 +153,16 @@ private:
         }
     }
 
-    void record_state(const std::string& label, const State& state) {
-        // Record state as a hexadecimal string for output
-        round_outputs_.push_back(label + " " + bytes_to_hex(state_to_bytes(state)));
+    void record_state(int i, const std::string& label, const State& state) {
+        round_outputs_.push_back("Input " + std::to_string(i) + " | " + label + " " + bytes_to_hex(state_to_bytes(state)));
+        std::cout << round_outputs_.back() << '\n';
     }
 
-    void record_state(const std::string& label, const Key& key) {
-        // Record key as a hexadecimal string for output
-        round_outputs_.push_back(label + " " + bytes_to_hex(key));
+    void record_state(int i, const std::string& label, const Key& key) {
+        round_outputs_.push_back("Input " + std::to_string(i) + " | " + label + " " + bytes_to_hex(key));
+        std::cout << round_outputs_.back() << '\n';
     }
+
 
 public:
     static std::string bytes_to_hex(const Key& bytes) {
@@ -179,7 +180,7 @@ public:
         round_outputs_.reserve(50); // Pre-allocate for round outputs
     }
 
-    Key encrypt_with_output(const Key& plaintext) {
+    Key encrypt_with_output(const Key& plaintext, int i) {
         // AES encryption with round-by-round output (Section 5.1)
         round_outputs_.clear();
         round_outputs_.push_back("CIPHER (ENCRYPT):\n");
@@ -188,46 +189,47 @@ public:
         bytes_to_state(plaintext, state);
 
         // Round 0
-        record_state("round[ 0].input", plaintext);
-        record_state("round[ 0].k_sch", state_to_bytes(round_keys_[0]));
+        record_state(i, "round[ 0].input", plaintext);
+        record_state(i, "round[ 0].k_sch", state_to_bytes(round_keys_[0]));
         add_round_key(state, round_keys_[0]);
-        record_state("round[ 1].start", state);
+        record_state(i, "round[ 1].start", state);
 
         // Rounds 1 to 9
         for (size_t round = 1; round < 10; ++round) {
+
             sub_bytes(state);
             std::stringstream ss;
             ss << "round[" << std::setw(2) << round << "].s_box";
-            record_state(ss.str(), state);
+            record_state(i, ss.str(), state);
 
             shift_rows(state);
             ss.str("");
             ss << "round[" << std::setw(2) << round << "].s_row";
-            record_state(ss.str(), state);
+            record_state(i, ss.str(), state);
 
             mix_columns(state);
             ss.str("");
             ss << "round[" << std::setw(2) << round << "].m_col";
-            record_state(ss.str(), state);
+            record_state(i, ss.str(), state);
 
             ss.str("");
             ss << "round[" << std::setw(2) << round << "].k_sch";
-            record_state(ss.str(), state_to_bytes(round_keys_[round]));
+            record_state(i, ss.str(), state_to_bytes(round_keys_[round]));
 
             add_round_key(state, round_keys_[round]);
             ss.str("");
             ss << "round[" << std::setw(2) << round + 1 << "].start";
-            record_state(ss.str(), state);
+            record_state(i, ss.str(), state);
         }
 
         // Final round (10)
         sub_bytes(state);
-        record_state("round[10].s_box", state);
+        record_state(i, "round[10].s_box", state);
         shift_rows(state);
-        record_state("round[10].s_row", state);
-        record_state("round[10].k_sch", state_to_bytes(round_keys_[10]));
+        record_state(i, "round[10].s_row", state);
+        record_state(i, "round[10].k_sch", state_to_bytes(round_keys_[10]));
         add_round_key(state, round_keys_[10]);
-        record_state("round[10].output", state);
+        record_state(i, "round[10].output", state);
 
         return state_to_bytes(state);
     }
@@ -320,7 +322,7 @@ void test_file_encryption() {
     // Encrypt each plaintext (parallelizable loop)
     for (size_t i = 0; i < plaintexts.size(); ++i) {
         AES128 aes(key); // Separate instance per iteration
-        ciphertexts[i] = aes.encrypt_with_output(plaintexts[i]);
+        ciphertexts[i] = aes.encrypt_with_output(plaintexts[i], i);
         round_outputs_all[i] = aes.get_round_outputs();
     }
 
