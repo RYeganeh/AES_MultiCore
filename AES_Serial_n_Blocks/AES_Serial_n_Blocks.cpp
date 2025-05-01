@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <chrono>
 
+using std::string; // Now you can use string directly
+
 // S-box from FIPS 197 Figure 7
 static const std::array<uint8_t, 256> s_box = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
@@ -153,16 +155,15 @@ private:
         }
     }
 
-    void record_state(int i, const std::string& label, const State& state) {
-        round_outputs_.push_back("Input " + std::to_string(i) + " | " + label + " " + bytes_to_hex(state_to_bytes(state)));
-        std::cout << round_outputs_.back() << '\n';
+    void record_state(string i, const std::string& label, const State& state) {
+        // Record state as a hexadecimal string for output
+        round_outputs_.push_back("input" + i + " | " + label + " " + bytes_to_hex(state_to_bytes(state)));
     }
 
-    void record_state(int i, const std::string& label, const Key& key) {
-        round_outputs_.push_back("Input " + std::to_string(i) + " | " + label + " " + bytes_to_hex(key));
-        std::cout << round_outputs_.back() << '\n';
+    void record_state(string i, const std::string& label, const Key& key) {
+        // Record key as a hexadecimal string for output
+        round_outputs_.push_back("input" + i + " | " + label + " " + bytes_to_hex(key));
     }
-
 
 public:
     static std::string bytes_to_hex(const Key& bytes) {
@@ -180,7 +181,7 @@ public:
         round_outputs_.reserve(50); // Pre-allocate for round outputs
     }
 
-    Key encrypt_with_output(const Key& plaintext, int i) {
+    Key encrypt_with_output(const Key& plaintext, string i) {
         // AES encryption with round-by-round output (Section 5.1)
         round_outputs_.clear();
         round_outputs_.push_back("CIPHER (ENCRYPT):\n");
@@ -196,7 +197,6 @@ public:
 
         // Rounds 1 to 9
         for (size_t round = 1; round < 10; ++round) {
-
             sub_bytes(state);
             std::stringstream ss;
             ss << "round[" << std::setw(2) << round << "].s_box";
@@ -321,8 +321,9 @@ void test_file_encryption() {
 
     // Encrypt each plaintext (parallelizable loop)
     for (size_t i = 0; i < plaintexts.size(); ++i) {
+        string s = std::to_string(i);
         AES128 aes(key); // Separate instance per iteration
-        ciphertexts[i] = aes.encrypt_with_output(plaintexts[i], i);
+        ciphertexts[i] = aes.encrypt_with_output(plaintexts[i], s);
         round_outputs_all[i] = aes.get_round_outputs();
     }
 
