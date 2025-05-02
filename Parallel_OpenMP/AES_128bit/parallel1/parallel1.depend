@@ -1,0 +1,28 @@
+# depslib dependency file v1.0
+1746101837 source:d:\e.r.y\(8)\multicore\aes\parallel_openmp\aes_128bit\parallel1\main.cpp
+	<array>
+	<cstdint>
+	<iomanip>
+	<iostream>
+	<sstream>
+	<vector>
+	<string>
+	<fstream>
+	<cctype>
+	<algorithm>
+	<chrono>
+
+1746128044 source:d:\e.r.y\(8)\multicore\aes\parallel_openmp\aes_128bit\parallel1\parallel1.cpp
+	<array>
+	<cstdint>
+	<iomanip>
+	<iostream>
+	<sstream>
+	<vector>
+	<string>
+	<fstream>
+	<cctype>
+	<algorithm>
+	<chrono>
+	<omp.h>
+
