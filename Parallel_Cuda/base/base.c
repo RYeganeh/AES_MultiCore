@@ -295,6 +295,13 @@ void test_file_encryption(void) {
 
 int main(void) {
     printf("Program started\n");
+    FILE *test = fopen("plaintext_100_blocks.txt", "r");
+    if (test == NULL) {
+        printf("File plaintext_100_blocks.txt not found!\n");
+    } else {
+        fclose(test);
+    }
+
     test_file_encryption();
     return 0;
 }
