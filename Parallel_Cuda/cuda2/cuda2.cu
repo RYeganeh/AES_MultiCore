@@ -340,8 +340,8 @@ void test_file_encryption(void) {
     float times[5] = {0};
     float total_time = 0;
     cudaStream_t streams[NUM_STREAMS];
-    uint8_t *d_plaintexts[NUM_STREAMS] = {NULL};
-    uint8_t *d_ciphertexts[NUM_STREAMS] = {NULL};
+    uint8_t *d_plaintexts = NULL;
+    uint8_t *d_ciphertexts = NULL;
 
     uint8_t key[BLOCK_SIZE] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f};
     char key_hex[BLOCK_SIZE*2+1];
@@ -360,12 +360,12 @@ void test_file_encryption(void) {
     size_t plaintext_count = 0, ciphertext_count = 0;
 
     printf("Reading plaintexts from plaintext_100_blocks.txt\n");
-    if (!read_keys("plaintext_1000_blocks.txt", plaintexts, &plaintext_count)) {
+    if (!read_keys("plaintext_100_blocks.txt", plaintexts, &plaintext_count)) {
         fprintf(stderr, "Failed to read plaintexts\n");
         goto cleanup;
     }
     printf("Reading ciphertexts from ciphertexts_100_blocks.txt\n");
-    if (!read_keys("ciphertexts_1000_blocks.txt", expected_ciphertexts, &ciphertext_count)) {
+    if (!read_keys("ciphertexts_100_blocks.txt", expected_ciphertexts, &ciphertext_count)) {
         fprintf(stderr, "Failed to read ciphertexts\n");
         goto cleanup;
     }
@@ -411,24 +411,21 @@ void test_file_encryption(void) {
         }
     }
 
-    // Allocate device memory for each stream
-    size_t blocks_per_stream = (plaintext_count + NUM_STREAMS - 1) / NUM_STREAMS;
-    for (int i = 0; i < NUM_STREAMS; ++i) {
-        size_t stream_blocks = (i == NUM_STREAMS - 1) ? (plaintext_count - i * blocks_per_stream) : blocks_per_stream;
-        if (stream_blocks == 0) continue;
-
-        err = cudaMalloc(&d_plaintexts[i], stream_blocks * BLOCK_SIZE * sizeof(uint8_t));
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to allocate d_plaintexts for stream %d: %s\n", i, cudaGetErrorString(err));
-            goto cleanup;
-        }
-        err = cudaMalloc(&d_ciphertexts[i], stream_blocks * BLOCK_SIZE * sizeof(uint8_t));
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to allocate d_ciphertexts for stream %d: %s\n", i, cudaGetErrorString(err));
-            cudaFree(d_plaintexts[i]);
-            goto cleanup;
-        }
+    // Allocate device memory
+    err = cudaMalloc(&d_plaintexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA Error: Failed to allocate d_plaintexts: %s\n", cudaGetErrorString(err));
+        goto cleanup;
     }
+    err = cudaMalloc(&d_ciphertexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA Error: Failed to allocate d_ciphertexts: %s\n", cudaGetErrorString(err));
+        cudaFree(d_plaintexts);
+        goto cleanup;
+    }
+
+    // Calculate blocks per stream
+    size_t blocks_per_stream = (plaintext_count + NUM_STREAMS - 1) / NUM_STREAMS;
 
     // CUDA Timing and Encryption
     enable_logging = 0;
@@ -438,25 +435,26 @@ void test_file_encryption(void) {
         cudaEventCreate(&stop);
         cudaEventRecord(start);
 
-        // Process each stream
-        for (int i = 0; i < NUM_STREAMS; ++i) {
-            size_t stream_blocks = (i == NUM_STREAMS - 1) ? (plaintext_count - i * blocks_per_stream) : blocks_per_stream;
-            if (stream_blocks == 0) continue;
+        // Copy all plaintexts to device
+        err = cudaMemcpyAsync(d_plaintexts, plaintexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t), cudaMemcpyHostToDevice, streams[0]);
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA Error: Failed to copy plaintexts: %s\n", cudaGetErrorString(err));
+            cudaEventDestroy(start);
+            cudaEventDestroy(stop);
+            goto cleanup;
+        }
 
-            size_t offset = i * blocks_per_stream * BLOCK_SIZE;
-            err = cudaMemcpyAsync(d_plaintexts[i], &plaintexts[i * blocks_per_stream], 
-                                 stream_blocks * BLOCK_SIZE * sizeof(uint8_t), 
-                                 cudaMemcpyHostToDevice, streams[i]);
-            if (err != cudaSuccess) {
-                fprintf(stderr, "CUDA Error: Failed to copy plaintexts for stream %d: %s\n", i, cudaGetErrorString(err));
-                cudaEventDestroy(start);
-                cudaEventDestroy(stop);
-                goto cleanup;
-            }
+        // Launch kernel for each stream
+        for (int i = 0; i < NUM_STREAMS; ++i) {
+            size_t start_block = i * blocks_per_stream;
+            size_t end_block = (i + 1) * blocks_per_stream;
+            if (end_block > plaintext_count) end_block = plaintext_count;
+            size_t num_blocks = end_block - start_block;
+            if (num_blocks == 0) continue;
 
             int threads_per_block = 256;
-            int blocks = (stream_blocks + threads_per_block - 1) / threads_per_block;
-            aes_encrypt_kernel<<<blocks, threads_per_block, 0, streams[i]>>>(d_plaintexts[i], d_ciphertexts[i], stream_blocks);
+            int blocks = (num_blocks + threads_per_block - 1) / threads_per_block;
+            aes_encrypt_kernel<<<blocks, threads_per_block, 0, streams[i]>>>(d_plaintexts + start_block * 16, d_ciphertexts + start_block * 16, num_blocks);
             err = cudaGetLastError();
             if (err != cudaSuccess) {
                 fprintf(stderr, "CUDA Kernel Error in stream %d: %s\n", i, cudaGetErrorString(err));
@@ -464,28 +462,25 @@ void test_file_encryption(void) {
                 cudaEventDestroy(stop);
                 goto cleanup;
             }
+        }
 
-            err = cudaMemcpyAsync(&ciphertexts[i * blocks_per_stream], d_ciphertexts[i], 
-                                 stream_blocks * BLOCK_SIZE * sizeof(uint8_t), 
-                                 cudaMemcpyDeviceToHost, streams[i]);
-            if (err != cudaSuccess) {
-                fprintf(stderr, "CUDA Error: Failed to copy ciphertexts for stream %d: %s\n", i, cudaGetErrorString(err));
-                cudaEventDestroy(start);
-                cudaEventDestroy(stop);
-                goto cleanup;
-            }
+        // Copy all ciphertexts from device
+        err = cudaMemcpyAsync(ciphertexts, d_ciphertexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t), cudaMemcpyDeviceToHost, streams[0]);
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA Error: Failed to copy ciphertexts: %s\n", cudaGetErrorString(err));
+            cudaEventDestroy(start);
+            cudaEventDestroy(stop);
+            goto cleanup;
         }
 
         // Synchronize all streams
         for (int i = 0; i < NUM_STREAMS; ++i) {
-            if (d_plaintexts[i]) {
-                err = cudaStreamSynchronize(streams[i]);
-                if (err != cudaSuccess) {
-                    fprintf(stderr, "CUDA Error: Failed to synchronize stream %d: %s\n", i, cudaGetErrorString(err));
-                    cudaEventDestroy(start);
-                    cudaEventDestroy(stop);
-                    goto cleanup;
-                }
+            err = cudaStreamSynchronize(streams[i]);
+            if (err != cudaSuccess) {
+                fprintf(stderr, "CUDA Error: Failed to synchronize stream %d: %s\n", i, cudaGetErrorString(err));
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+                goto cleanup;
             }
         }
 
@@ -533,9 +528,9 @@ void test_file_encryption(void) {
     // }
 
 cleanup:
+    if (d_plaintexts) cudaFree(d_plaintexts);
+    if (d_ciphertexts) cudaFree(d_ciphertexts);
     for (int i = 0; i < NUM_STREAMS; ++i) {
-        if (d_plaintexts[i]) cudaFree(d_plaintexts[i]);
-        if (d_ciphertexts[i]) cudaFree(d_ciphertexts[i]);
         cudaStreamDestroy(streams[i]);
     }
     if (plaintexts) free(plaintexts);
