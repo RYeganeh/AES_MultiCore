@@ -258,33 +258,31 @@ void test_file_encryption(void) {
 
     for (size_t i = 0; i < plaintext_count; ++i) {
         printf("Input %zu\n", i+1);
-        fflush(stdout);
         printf("PLAINTEXT: %s\n", key_hex /* reuse plaintext hex function */);
-        fflush(stdout);
+        
         printf("KEY: %s\n", key_hex);
-        fflush(stdout);
+        
         for (int j = 0; j < aes_ctx[i].output_count; ++j){
             printf("%s\n", aes_ctx[i].round_outputs[j]);
-            fflush(stdout);
+            
         }
         
         char ct_hex[BLOCK_SIZE*2+1]; bytes_to_hex(ciphertexts[i], ct_hex);
         printf("CIPHERTEXT: %s\n", ct_hex);
-        fflush(stdout);
+        
         int match = memcmp(ciphertexts[i], expected_ciphertexts[i], BLOCK_SIZE)==0;
         printf("Match: %s\n", match?"Yes":"No");
-        fflush(stdout);
+        
         printf("===============================================================\n");
-        fflush(stdout);
+        
     }
 
     for (int i = 0; i < num_iterations; ++i){
         printf("Iteration %d: %.3f ms\n", i+1, times[i]);
-        fflush(stdout);
     }
     
     printf("Average: %.3f ms\n", total_time/num_iterations);
-    fflush(stdout);
+    
 
     enable_logging = 1;
     for (size_t i = 0; i < plaintext_count; ++i) {
@@ -297,8 +295,6 @@ void test_file_encryption(void) {
 
 int main(void) {
     printf("Program started\n");
-    fflush(stdout);
-
     test_file_encryption();
     return 0;
 }
