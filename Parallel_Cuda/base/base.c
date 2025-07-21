@@ -283,6 +283,9 @@ void test_file_encryption(void) {
 }
 
 int main(void) {
+    printf("Program started\n");
+    fflush(stdout);
+
     test_file_encryption();
     return 0;
 }
