@@ -284,5 +284,10 @@ void test_file_encryption(void) {
 
 int main(void) {
     test_file_encryption();
+    // adding these lines
+    for (int i = 0; i < ctx.output_count; i++) {
+        printf("%s\n", ctx.round_outputs[i]);
+    }
+
     return 0;
 }
