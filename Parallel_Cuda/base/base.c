@@ -284,6 +284,7 @@ void test_file_encryption(void) {
 
 int main(void) {
     test_file_encryption();
-
+    printf("Press the Enter key to continue\n");
+    (void) getc(stdin);
     return 0;
 }
