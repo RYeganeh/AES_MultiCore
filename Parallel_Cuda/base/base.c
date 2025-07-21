@@ -5,7 +5,8 @@
 #include <stdint.h>
 #include <time.h>
 
-static int enable_logging = 0;
+//static int enable_logging = 0; changed to 1 
+static int enable_logging = 1;
 
 // S-box from FIPS 197 Figure 7
 static const uint8_t s_box[256] = {
