@@ -5,8 +5,8 @@
 #include <stdint.h>
 #include <time.h>
 
-//static int enable_logging = 0; changed to 1 
-static int enable_logging = 1;
+
+static int enable_logging = 0;
 
 // S-box from FIPS 197 Figure 7
 static const uint8_t s_box[256] = {
@@ -284,10 +284,6 @@ void test_file_encryption(void) {
 
 int main(void) {
     test_file_encryption();
-    // adding these lines
-    for (int i = 0; i < ctx.output_count; i++) {
-        printf("%s\n", ctx.round_outputs[i]);
-    }
 
     return 0;
 }
