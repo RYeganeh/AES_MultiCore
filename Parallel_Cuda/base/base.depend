@@ -1,0 +1,9 @@
+# depslib dependency file v1.0
+1752873303 source:d:\e.r.y\(8)\multicore\aes\parallel_cuda\base\base.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<ctype.h>
+	<stdint.h>
+	<time.h>
+
