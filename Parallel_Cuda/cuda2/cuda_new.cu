@@ -33,7 +33,7 @@ static const uint8_t rcon[10] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
 #define BLOCK_SIZE 16
 #define NUM_ROUNDS 10
 #define MAX_ROUNDS (NUM_ROUNDS + 1)
-#define MAX_BLOCKS 1000
+#define MAX_BLOCKS 10000
 #define MAX_OUTPUTS 50
 #define MAX_LINE 256
 #define NUM_STREAMS 4
@@ -385,14 +385,14 @@ void test_file_encryption(void) {
     char key_hex[BLOCK_SIZE * 2 + 1];
     bytes_to_hex(key, key_hex);
 
-    printf("Reading plaintexts from plaintext_1000_blocks.txt\n");
-    if (!read_keys("plaintext_1000_blocks.txt", plaintexts, &plaintext_count)) {
+    printf("Reading plaintexts from plaintext_10000_blocks.txt\n");
+    if (!read_keys("plaintext_10000_blocks.txt", plaintexts, &plaintext_count)) {
         fprintf(stderr, "Error: Failed to read plaintexts\n");
         cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
-    printf("Reading ciphertexts from ciphertexts_1000_blocks.txt\n");
-    if (!read_keys("ciphertexts_1000_blocks.txt", expected_ciphertexts, &ciphertext_count)) {
+    printf("Reading ciphertexts from ciphertexts_10000_blocks.txt\n");
+    if (!read_keys("ciphertexts_10000_blocks.txt", expected_ciphertexts, &ciphertext_count)) {
         fprintf(stderr, "Error: Failed to read ciphertexts\n");
         cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
