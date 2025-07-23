@@ -20,47 +20,6 @@ static const uint8_t s_box[256] = {
     0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
     0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
     0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
-    0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd	Want to make an AES encryption program in CUDA that automatically tests different thread block sizes and kernel granularities, incorporating all the specified changes?
-
-To incorporate all the requested changes into your AES encryption program, I'll modify the code to:
-1. Use shared memory (already implemented in your code).
-2. Improve the `cleanup_resources` function for safer memory management.
-3. Restore full logging functionality for debugging.
-4. Add automated testing for different `THREADS_PER_BLOCK` and `blocks_per_thread` values.
-5. Include result validation by comparing GPU outputs with expected ciphertexts.
-
-### Changes Applied
-- **CUDA Kernel**: Modified to accept `blocks_per_thread` as a parameter.
-- **test_file_encryption Function**: Rewritten to include loops for testing various `THREADS_PER_BLOCK` and `blocks_per_thread` combinations.
-- **Validation**: Added a function to compare GPU outputs with `expected_ciphertexts`.
-- **Shared Memory Management**: Added checks to prevent exceeding shared memory limits.
-- **Result Reporting**: Outputs results in a table format and identifies the best configuration.
-
-### Complete Modified Code
-<xaiArtifact artifact_id="2fe3817d-8882-49cf-b836-e6403db16742" artifact_version_id="f831a6b5-fe19-4ba3-a68c-cacfc44fbec9" title="aes_cuda.cu" contentType="text/x-cuda-src">
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <stdint.h>
-#include <time.h>
-#include <cuda_runtime.h>
-
-static int enable_logging = 0;
-
-static const uint8_t s_box[256] = {
-    0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
-    0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
-    0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
-    0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
-    0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
-    0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
-    0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
-    0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
-    0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
-    0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
-    0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
     0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
     0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
     0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
@@ -154,13 +113,11 @@ __device__ void add_round_key_device(uint8_t state[4][4], const uint8_t *round_k
 }
 
 __global__ void aes_encrypt_kernel(const uint8_t* plaintexts, uint8_t* ciphertexts, int num_blocks, int blocks_per_thread) {
-    // Declare shared memory for s_box, round_keys, and state for all threads in block
     extern __shared__ uint8_t shared_memory[];
     uint8_t* shared_s_box = shared_memory;
     uint8_t* shared_round_keys = shared_s_box + 256;
     uint8_t (*shared_state)[4][4] = (uint8_t (*)[4][4])(shared_round_keys + 176);
 
-    // Copy s_box and round_keys to shared memory (done by thread 0 in block)
     if (threadIdx.x == 0) {
         for (int i = 0; i < 256; ++i)
             shared_s_box[i] = d_s_box[i];
@@ -174,10 +131,8 @@ __global__ void aes_encrypt_kernel(const uint8_t* plaintexts, uint8_t* ciphertex
     for (int b = 0; b < blocks_per_thread && (idx * blocks_per_thread + b) < num_blocks; ++b) {
         int block_idx = idx * blocks_per_thread + b;
 
-        // Copy plaintext to shared memory state
         bytes_to_state_device(&plaintexts[block_idx * 16], shared_state[threadIdx.x]);
 
-        // Perform AES encryption using shared memory
         add_round_key_device(shared_state[threadIdx.x], shared_round_keys);
         for (int round = 1; round < NUM_ROUNDS; ++round) {
             sub_bytes_device(shared_state[threadIdx.x], shared_s_box);
@@ -189,7 +144,6 @@ __global__ void aes_encrypt_kernel(const uint8_t* plaintexts, uint8_t* ciphertex
         shift_rows_device(shared_state[threadIdx.x]);
         add_round_key_device(shared_state[threadIdx.x], shared_round_keys + NUM_ROUNDS * 16);
 
-        // Write result back to global memory
         state_to_bytes_device(shared_state[threadIdx.x], &ciphertexts[block_idx * 16]);
     }
 }
@@ -388,14 +342,15 @@ int read_keys(const char *filename, uint8_t keys[][BLOCK_SIZE], size_t *count) {
     return 1;
 }
 
-void cleanup_resources(cudaStream_t *streams, uint8_t *d_plaintexts[], uint8_t *d_ciphertexts[],
+void cleanup_resources(cudaStream_t *streams, cudaEvent_t *stream_done, uint8_t *d_all_plaintexts, uint8_t *d_all_ciphertexts,
                       uint8_t (*plaintexts)[BLOCK_SIZE], uint8_t (*expected_ciphertexts)[BLOCK_SIZE],
                       uint8_t (*ciphertexts)[BLOCK_SIZE], struct AES128_Context *aes_ctx) {
     for (int i = 0; i < NUM_STREAMS; ++i) {
-        if (d_plaintexts && d_plaintexts[i]) cudaFree(d_plaintexts[i]);
-        if (d_ciphertexts && d_ciphertexts[i]) cudaFree(d_ciphertexts[i]);
-        if (streams[i]) cudaStreamDestroy(streams[i]);
+        if (streams && streams[i]) cudaStreamDestroy(streams[i]);
+        if (stream_done && stream_done[i]) cudaEventDestroy(stream_done[i]);
     }
+    if (d_all_plaintexts) cudaFree(d_all_plaintexts);
+    if (d_all_ciphertexts) cudaFree(d_all_ciphertexts);
     if (plaintexts) cudaFreeHost(plaintexts);
     if (expected_ciphertexts) cudaFreeHost(expected_ciphertexts);
     if (ciphertexts) cudaFreeHost(ciphertexts);
@@ -403,7 +358,7 @@ void cleanup_resources(cudaStream_t *streams, uint8_t *d_plaintexts[], uint8_t *
 }
 
 bool validate_results(uint8_t (*ciphertexts)[BLOCK_SIZE], uint8_t (*expected_ciphertexts)[BLOCK_SIZE], size_t count) {
-    const size_t max_blocks_to_check = 10; // Check only first 10 blocks to avoid excessive output
+    const size_t max_blocks_to_check = 10;
     bool valid = true;
     for (size_t i = 0; i < count && i < max_blocks_to_check; ++i) {
         for (size_t j = 0; j < BLOCK_SIZE; ++j) {
@@ -435,7 +390,6 @@ void run_kernel_test(cudaStream_t *streams, cudaEvent_t *stream_done, uint8_t *d
     float total_time = 0;
     float times[5] = {0};
 
-    // تنظیم درشت‌دانگی کرنل به صورت دینامیک در کرنل
     *success = true;
 
     for (int iter = 0; iter < num_iterations && *success; ++iter) {
@@ -463,7 +417,7 @@ void run_kernel_test(cudaStream_t *streams, cudaEvent_t *stream_done, uint8_t *d
                 break;
             }
 
-            size_t shared_memory_size = 256 + 176 + threads_per_block * 4 * 4; // shared_s_box + shared_round_keys + shared_state
+            size_t shared_memory_size = 256 + 176 + threads_per_block * 4 * 4;
             int blocks = (stream_blocks[i] + blocks_per_thread * threads_per_block - 1) / (blocks_per_thread * threads_per_block);
             aes_encrypt_kernel<<<blocks, threads_per_block, shared_memory_size, streams[i]>>>(d_all_plaintexts + offset, d_all_ciphertexts + offset, stream_blocks[i], blocks_per_thread);
             err = cudaGetLastError();
@@ -510,7 +464,6 @@ void run_kernel_test(cudaStream_t *streams, cudaEvent_t *stream_done, uint8_t *d
         cudaEventDestroy(start);
         cudaEventDestroy(stop);
 
-        // Validate results after each iteration
         if (*success && !validate_results(ciphertexts, expected_ciphertexts, plaintext_count)) {
             fprintf(stderr, "Validation failed for THREADS_PER_BLOCK=%d, blocks_per_thread=%d, iteration=%d\n",
                     threads_per_block, blocks_per_thread, iter + 1);
@@ -527,8 +480,8 @@ void test_file_encryption(void) {
     const int num_iterations = 5;
     bool success = true;
 
-    cudaStream_t streams[NUM_STREAMS];
-    cudaEvent_t stream_done[NUM_STREAMS];
+    cudaStream_t streams[NUM_STREAMS] = {0};
+    cudaEvent_t stream_done[NUM_STREAMS] = {0};
     uint8_t *d_all_plaintexts = NULL, *d_all_ciphertexts = NULL;
     uint8_t key[BLOCK_SIZE] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
                               0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
@@ -546,33 +499,33 @@ void test_file_encryption(void) {
 
     if (!plaintexts || !expected_ciphertexts || !ciphertexts || !aes_ctx) {
         fprintf(stderr, "Error: Memory allocation failed\n");
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
     printf("Reading plaintexts from plaintext_10000_blocks.txt\n");
     if (!read_keys("plaintext_10000_blocks.txt", plaintexts, &plaintext_count)) {
         fprintf(stderr, "Error: Failed to read plaintexts\n");
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
     printf("Reading ciphertexts from ciphertexts_10000_blocks.txt\n");
     if (!read_keys("ciphertexts_10000_blocks.txt", expected_ciphertexts, &ciphertext_count)) {
         fprintf(stderr, "Error: Failed to read ciphertexts\n");
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
     if (plaintext_count == 0 || plaintext_count != ciphertext_count) {
         fprintf(stderr, "Error: Mismatch in number of plaintexts (%zu) and ciphertexts (%zu)\n",
                 plaintext_count, ciphertext_count);
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
     err = cudaSetDevice(0);
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to set device: %s\n", cudaGetErrorString(err));
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
@@ -581,27 +534,26 @@ void test_file_encryption(void) {
     err = cudaMemcpyToSymbol(d_s_box, s_box, 256 * sizeof(uint8_t));
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to copy S-box: %s\n", cudaGetErrorString(err));
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
     err = cudaMemcpyToSymbol(d_round_keys, round_keys_flat, 176 * sizeof(uint8_t));
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to copy round keys: %s\n", cudaGetErrorString(err));
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
     err = cudaMalloc(&d_all_plaintexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t));
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to allocate d_all_plaintexts: %s\n", cudaGetErrorString(err));
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
     err = cudaMalloc(&d_all_ciphertexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t));
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to allocate d_all_ciphertexts: %s\n", cudaGetErrorString(err));
-        cudaFree(d_all_plaintexts);
-        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
@@ -609,13 +561,13 @@ void test_file_encryption(void) {
         err = cudaStreamCreate(&streams[i]);
         if (err != cudaSuccess) {
             fprintf(stderr, "CUDA Error: Failed to create stream %d: %s\n", i, cudaGetErrorString(err));
-            cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+            cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
             return;
         }
         err = cudaEventCreate(&stream_done[i]);
         if (err != cudaSuccess) {
             fprintf(stderr, "CUDA Error: Failed to create event %d: %s\n", i, cudaGetErrorString(err));
-            cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+            cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
             return;
         }
     }
@@ -627,7 +579,6 @@ void test_file_encryption(void) {
         stream_blocks[i] = base_blocks + (i < extra_blocks ? 1 : 0);
     }
 
-    // Define test parameters
     const int thread_block_sizes[] = {64, 128, 192, 256};
     const int block_per_thread_sizes[] = {1, 2, 4, 8};
     const int num_thread_sizes = sizeof(thread_block_sizes) / sizeof(thread_block_sizes[0]);
@@ -635,9 +586,8 @@ void test_file_encryption(void) {
     struct TestResult results[num_thread_sizes * num_block_per_thread_sizes];
     int result_count = 0;
 
-    // Shared memory limit (48KB for most modern GPUs)
     const size_t max_shared_memory = 48 * 1024;
-    const size_t shared_memory_per_block_base = 256 + 176; // shared_s_box + shared_round_keys
+    const size_t shared_memory_per_block_base = 256 + 176;
 
     printf("\nTesting different THREADS_PER_BLOCK and blocks_per_thread combinations:\n");
     printf("------------------------------------------------------------\n");
@@ -645,7 +595,6 @@ void test_file_encryption(void) {
     printf("------------------------------------------------------------\n");
 
     enable_logging = 0;
-    // Test loop for different configurations
     for (int t = 0; t < num_thread_sizes && success; ++t) {
         int threads_per_block = thread_block_sizes[t];
         size_t shared_memory_needed = shared_memory_per_block_base + threads_per_block * 4 * 4;
@@ -679,7 +628,6 @@ void test_file_encryption(void) {
         }
     }
 
-    // Find best configuration
     if (result_count > 0 && success) {
         float min_time = results[0].avg_time_ms;
         int best_index = 0;
@@ -697,19 +645,7 @@ void test_file_encryption(void) {
         printf("No successful configurations found.\n");
     }
 
-    // Cleanup
-    for (int i = 0; i < NUM_STREAMS; ++i) {
-        if (stream_blocks[i] > 0) {
-            cudaStreamDestroy(streams[i]);
-            cudaEventDestroy(stream_done[i]);
-        }
-    }
-    cudaFree(d_all_plaintexts);
-    cudaFree(d_all_ciphertexts);
-    cudaFreeHost(plaintexts);
-    cudaFreeHost(expected_ciphertexts);
-    cudaFreeHost(ciphertexts);
-    free(aes_ctx);
+    cleanup_resources(streams, stream_done, d_all_plaintexts, d_all_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
 }
 
 int main(void) {
