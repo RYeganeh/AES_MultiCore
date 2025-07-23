@@ -227,27 +227,72 @@ int read_keys(const char *filename, uint8_t keys[][BLOCK_SIZE], size_t *count) {
 }
 
 void test_file_encryption(void) {
-    uint8_t key[BLOCK_SIZE] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f};
-    char key_hex[BLOCK_SIZE*2+1]; bytes_to_hex(key, key_hex);
+    uint8_t key[BLOCK_SIZE] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                               0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+    char key_hex[BLOCK_SIZE * 2 + 1];
+    bytes_to_hex(key, key_hex);
 
-    uint8_t plaintexts[MAX_BLOCKS][BLOCK_SIZE];
-    uint8_t expected_ciphertexts[MAX_BLOCKS][BLOCK_SIZE];
-    uint8_t ciphertexts[MAX_BLOCKS][BLOCK_SIZE];
-    struct AES128_Context aes_ctx[MAX_BLOCKS];
-    size_t plaintext_count=0, ciphertext_count=0;
+    uint8_t (*plaintexts)[BLOCK_SIZE] = malloc(MAX_BLOCKS * BLOCK_SIZE * sizeof(uint8_t));
+    uint8_t (*expected_ciphertexts)[BLOCK_SIZE] = malloc(MAX_BLOCKS * BLOCK_SIZE * sizeof(uint8_t));
+    uint8_t (*ciphertexts)[BLOCK_SIZE] = malloc(MAX_BLOCKS * BLOCK_SIZE * sizeof(uint8_t));
+    struct AES128_Context *aes_ctx = malloc(MAX_BLOCKS * sizeof(struct AES128_Context));
 
-    if (!read_keys("plaintext_10000_blocks.txt", plaintexts, &plaintext_count)) return;
-    if (!read_keys("ciphertexts_10000_blocks.txt", expected_ciphertexts, &ciphertext_count)) return;
-    if (plaintext_count == 0 || plaintext_count != ciphertext_count) return;
+    if (!plaintexts || !expected_ciphertexts || !ciphertexts || !aes_ctx) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        free(plaintexts);
+        free(expected_ciphertexts);
+        free(ciphertexts);
+        free(aes_ctx);
+        return;
+    }
+
+    size_t plaintext_count = 0, ciphertext_count = 0;
+
+    printf("Reading plaintexts from plaintext_10000_blocks.txt\n");
+    if (!read_keys("plaintext_10000_blocks.txt", plaintexts, &plaintext_count)) {
+        fprintf(stderr, "Error: Failed to read plaintexts\n");
+        free(plaintexts);
+        free(expected_ciphertexts);
+        free(ciphertexts);
+        free(aes_ctx);
+        return;
+    }
+    printf("Reading ciphertexts from ciphertexts_10000_blocks.txt\n");
+    if (!read_keys("ciphertexts_10000_blocks.txt", expected_ciphertexts, &ciphertext_count)) {
+        fprintf(stderr, "Error: Failed to read ciphertexts\n");
+        free(plaintexts);
+        free(expected_ciphertexts);
+        free(ciphertexts);
+        free(aes_ctx);
+        return;
+    }
+    if (plaintext_count == 0 || plaintext_count != ciphertext_count) {
+        fprintf(stderr, "Error: Mismatch in number of plaintexts (%zu) and ciphertexts (%zu)\n",
+                plaintext_count, ciphertext_count);
+        free(plaintexts);
+        free(expected_ciphertexts);
+        free(ciphertexts);
+        free(aes_ctx);
+        return;
+    }
+    if (plaintext_count > MAX_BLOCKS) {
+        fprintf(stderr, "Error: Too many blocks (%zu > %d)\n", plaintext_count, MAX_BLOCKS);
+        free(plaintexts);
+        free(expected_ciphertexts);
+        free(ciphertexts);
+        free(aes_ctx);
+        return;
+    }
 
     const int num_iterations = 5;
-    double times[5], total_time=0;
+    double times[5], total_time = 0;
 
     enable_logging = 0;
     for (int iter = 0; iter < num_iterations; ++iter) {
         clock_t start = clock();
         for (size_t i = 0; i < plaintext_count; ++i) {
-            char idx[16]; snprintf(idx, sizeof(idx), "%zu", i);
+            char idx[16];
+            snprintf(idx, sizeof(idx), "%zu", i);
             aes_init(&aes_ctx[i], key);
             aes_encrypt_with_output(&aes_ctx[i], plaintexts[i], ciphertexts[i], idx);
         }
@@ -257,42 +302,40 @@ void test_file_encryption(void) {
     }
 
     for (size_t i = 0; i < plaintext_count; ++i) {
-        printf("Input %zu\n", i+1);
-        printf("PLAINTEXT: %s\n", key_hex /* reuse plaintext hex function */);
-        
+        char pt_hex[BLOCK_SIZE * 2 + 1];
+        bytes_to_hex(plaintexts[i], pt_hex);
+        printf("Input %zu\n", i + 1);
+        printf("PLAINTEXT: %s\n", pt_hex); // اصلاح چاپ متن ساده
         printf("KEY: %s\n", key_hex);
-        
-        for (int j = 0; j < aes_ctx[i].output_count; ++j){
+        for (int j = 0; j < aes_ctx[i].output_count; ++j) {
             printf("%s\n", aes_ctx[i].round_outputs[j]);
-            
         }
-        
-        char ct_hex[BLOCK_SIZE*2+1]; bytes_to_hex(ciphertexts[i], ct_hex);
+        char ct_hex[BLOCK_SIZE * 2 + 1];
+        bytes_to_hex(ciphertexts[i], ct_hex);
         printf("CIPHERTEXT: %s\n", ct_hex);
-        
-        int match = memcmp(ciphertexts[i], expected_ciphertexts[i], BLOCK_SIZE)==0;
-        printf("Match: %s\n", match?"Yes":"No");
-        
+        int match = memcmp(ciphertexts[i], expected_ciphertexts[i], BLOCK_SIZE) == 0;
+        printf("Match: %s\n", match ? "Yes" : "No");
         printf("===============================================================\n");
-        
     }
 
-    for (int i = 0; i < num_iterations; ++i){
-        printf("Iteration %d: %.3f ms\n", i+1, times[i]);
+    for (int i = 0; i < num_iterations; ++i) {
+        printf("Iteration %d: %.3f ms\n", i + 1, times[i]);
     }
-    
-    printf("Average: %.3f ms\n", total_time/num_iterations);
-    
+    printf("Average: %.3f ms\n", total_time / num_iterations);
 
     enable_logging = 1;
     for (size_t i = 0; i < plaintext_count; ++i) {
-        char idx[16]; snprintf(idx, sizeof(idx), "%zu", i);
+        char idx[16];
+        snprintf(idx, sizeof(idx), "%zu", i);
         aes_init(&aes_ctx[i], key);
         aes_encrypt_with_output(&aes_ctx[i], plaintexts[i], ciphertexts[i], idx);
-        // detailed logs could be printed here
     }
-}
 
+    free(plaintexts);
+    free(expected_ciphertexts);
+    free(ciphertexts);
+    free(aes_ctx);
+}
 int main(void) {
     printf("Program started\n");
     test_file_encryption();
