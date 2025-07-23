@@ -34,7 +34,7 @@ static const uint8_t rcon[10] = {0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x
 #define BLOCK_SIZE 16
 #define NUM_ROUNDS 10
 #define MAX_ROUNDS (NUM_ROUNDS + 1)
-#define MAX_BLOCKS 100
+#define MAX_BLOCKS 10000
 #define MAX_OUTPUTS 50
 #define MAX_LINE 256
 
@@ -236,8 +236,8 @@ void test_file_encryption(void) {
     struct AES128_Context aes_ctx[MAX_BLOCKS];
     size_t plaintext_count=0, ciphertext_count=0;
 
-    if (!read_keys("plaintext_100_blocks.txt", plaintexts, &plaintext_count)) return;
-    if (!read_keys("ciphertexts_100_blocks.txt", expected_ciphertexts, &ciphertext_count)) return;
+    if (!read_keys("plaintext_10000_blocks.txt", plaintexts, &plaintext_count)) return;
+    if (!read_keys("ciphertexts_10000_blocks.txt", expected_ciphertexts, &ciphertext_count)) return;
     if (plaintext_count == 0 || plaintext_count != ciphertext_count) return;
 
     const int num_iterations = 5;
@@ -295,13 +295,6 @@ void test_file_encryption(void) {
 
 int main(void) {
     printf("Program started\n");
-    FILE *test = fopen("plaintext_100_blocks.txt", "r");
-    if (test == NULL) {
-        printf("File plaintext_100_blocks.txt not found!\n");
-    } else {
-        fclose(test);
-    }
-
     test_file_encryption();
     return 0;
 }
