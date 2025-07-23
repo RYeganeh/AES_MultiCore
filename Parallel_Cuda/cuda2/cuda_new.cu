@@ -1,6 +1,7 @@
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>https://www.youtube.com/c/gtecmedicalengineering$0
+#include <string.h>
 #include <ctype.h>
 #include <stdint.h>
 #include <time.h>
@@ -8,7 +9,6 @@
 
 static int enable_logging = 0;
 
-// S-box from FIPS 197 Figure 7
 static const uint8_t s_box[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -28,29 +28,25 @@ static const uint8_t s_box[256] = {
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 };
 
-// Round constants from Section 5.2
 static const uint8_t rcon[10] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36};
 
 #define BLOCK_SIZE 16
 #define NUM_ROUNDS 10
 #define MAX_ROUNDS (NUM_ROUNDS + 1)
-#define MAX_BLOCKS 1000 // Updated to match 1000 blocks
+#define MAX_BLOCKS 1000
 #define MAX_OUTPUTS 50
 #define MAX_LINE 256
-#define NUM_STREAMS 4 // Number of streams for parallel processing
+#define NUM_STREAMS 4
 
-// AES context structure
 struct AES128_Context {
     uint8_t round_keys[MAX_ROUNDS][4][4];
     char round_outputs[MAX_OUTPUTS][MAX_LINE];
     int output_count;
 };
 
-// CUDA constant memory
 __constant__ uint8_t d_s_box[256];
-__constant__ uint8_t d_round_keys[176]; // 11 rounds * 16 bytes
+__constant__ uint8_t d_round_keys[176];
 
-// Function prototypes (CPU)
 void bytes_to_state(const uint8_t *block, uint8_t state[4][4]);
 void state_to_bytes(const uint8_t state[4][4], uint8_t *block);
 void sub_bytes(uint8_t state[4][4]);
@@ -68,7 +64,6 @@ int hex_to_key(const char *hex, uint8_t *key);
 int read_keys(const char *filename, uint8_t keys[][BLOCK_SIZE], size_t *count);
 void test_file_encryption(void);
 
-// CUDA device functions
 __device__ void bytes_to_state_device(const uint8_t *block, uint8_t state[4][4]) {
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
@@ -118,27 +113,40 @@ __device__ void add_round_key_device(uint8_t state[4][4], const uint8_t *round_k
 }
 
 __global__ void aes_encrypt_kernel(const uint8_t* plaintexts, uint8_t* ciphertexts, int num_blocks) {
+    __shared__ uint8_t s_box_shared[256];
+    __shared__ uint8_t round_keys_shared[176];
+
+    if (threadIdx.x < 256) {
+        s_box_shared[threadIdx.x] = d_s_box[threadIdx.x];
+    }
+    if (threadIdx.x < 176) {
+        round_keys_shared[threadIdx.x] = d_round_keys[threadIdx.x];
+    }
+    __syncthreads();
+
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_blocks) return;
+    const int blocks_per_thread = 4;
 
-    uint8_t state[4][4];
-    bytes_to_state_device(&plaintexts[idx * 16], state);
+    for (int b = 0; b < blocks_per_thread && (idx * blocks_per_thread + b) < num_blocks; ++b) {
+        int block_idx = idx * blocks_per_thread + b;
+        uint8_t state[4][4];
+        bytes_to_state_device(&plaintexts[block_idx * 16], state);
 
-    add_round_key_device(state, d_round_keys);
-    for (int round = 1; round < NUM_ROUNDS; ++round) {
+        add_round_key_device(state, round_keys_shared);
+        for (int round = 1; round < NUM_ROUNDS; ++round) {
+            sub_bytes_device(state);
+            shift_rows_device(state);
+            mix_columns_device(state);
+            add_round_key_device(state, round_keys_shared + round * 16);
+        }
         sub_bytes_device(state);
         shift_rows_device(state);
-        mix_columns_device(state);
-        add_round_key_device(state, d_round_keys + round * 16);
-    }
-    sub_bytes_device(state);
-    shift_rows_device(state);
-    add_round_key_device(state, d_round_keys + NUM_ROUNDS * 16);
+        add_round_key_device(state, round_keys_shared + NUM_ROUNDS * 16);
 
-    state_to_bytes_device(state, &ciphertexts[idx * 16]);
+        state_to_bytes_device(state, &ciphertexts[block_idx * 16]);
+    }
 }
 
-// CPU function implementations
 void bytes_to_state(const uint8_t *block, uint8_t state[4][4]) {
     for (size_t r = 0; r < 4; ++r)
         for (size_t c = 0; c < 4; ++c)
@@ -334,7 +342,6 @@ int read_keys(const char *filename, uint8_t keys[][BLOCK_SIZE], size_t *count) {
     return 1;
 }
 
-// Function to free resources
 void cleanup_resources(cudaStream_t *streams, uint8_t *d_plaintexts[], uint8_t *d_ciphertexts[],
                       uint8_t (*plaintexts)[BLOCK_SIZE], uint8_t (*expected_ciphertexts)[BLOCK_SIZE],
                       uint8_t (*ciphertexts)[BLOCK_SIZE], struct AES128_Context *aes_ctx) {
@@ -355,7 +362,6 @@ void test_file_encryption(void) {
     float total_time = 0;
     bool success = true;
 
-    // Initialize variables
     cudaStream_t streams[NUM_STREAMS] = {0};
     uint8_t *d_plaintexts[NUM_STREAMS] = {NULL};
     uint8_t *d_ciphertexts[NUM_STREAMS] = {NULL};
@@ -365,24 +371,20 @@ void test_file_encryption(void) {
     size_t ciphertext_count = 0;
     cudaError_t err;
 
-    // Allocate memory
     uint8_t (*plaintexts)[BLOCK_SIZE] = (uint8_t (*)[BLOCK_SIZE])malloc(MAX_BLOCKS * BLOCK_SIZE);
     uint8_t (*expected_ciphertexts)[BLOCK_SIZE] = (uint8_t (*)[BLOCK_SIZE])malloc(MAX_BLOCKS * BLOCK_SIZE);
     uint8_t (*ciphertexts)[BLOCK_SIZE] = (uint8_t (*)[BLOCK_SIZE])malloc(MAX_BLOCKS * BLOCK_SIZE);
     struct AES128_Context *aes_ctx = (struct AES128_Context *)malloc(MAX_BLOCKS * sizeof(struct AES128_Context));
 
-    // Check memory allocation
     if (!plaintexts || !expected_ciphertexts || !ciphertexts || !aes_ctx) {
         fprintf(stderr, "Error: Memory allocation failed\n");
         cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
-    // Convert key to hex format
     char key_hex[BLOCK_SIZE * 2 + 1];
     bytes_to_hex(key, key_hex);
 
-    // Read plaintexts and ciphertexts
     printf("Reading plaintexts from plaintext_1000_blocks.txt\n");
     if (!read_keys("plaintext_1000_blocks.txt", plaintexts, &plaintext_count)) {
         fprintf(stderr, "Error: Failed to read plaintexts\n");
@@ -407,7 +409,6 @@ void test_file_encryption(void) {
         return;
     }
 
-    // CUDA Setup
     err = cudaSetDevice(0);
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to set device: %s\n", cudaGetErrorString(err));
@@ -415,7 +416,6 @@ void test_file_encryption(void) {
         return;
     }
 
-    // Prepare GPU data
     uint8_t round_keys_flat[176];
     key_expansion_to_flat(key, round_keys_flat);
 
@@ -432,7 +432,6 @@ void test_file_encryption(void) {
         return;
     }
 
-    // Create streams
     size_t blocks_per_stream = (plaintext_count + NUM_STREAMS - 1) / NUM_STREAMS;
     for (int i = 0; i < NUM_STREAMS; ++i) {
         err = cudaStreamCreate(&streams[i]);
@@ -443,7 +442,6 @@ void test_file_encryption(void) {
         }
     }
 
-    // Allocate device memory for each stream
     for (int i = 0; i < NUM_STREAMS; ++i) {
         size_t stream_blocks = (i == NUM_STREAMS - 1) ? (plaintext_count - i * blocks_per_stream) : blocks_per_stream;
         if (stream_blocks == 0) continue;
@@ -462,7 +460,6 @@ void test_file_encryption(void) {
         }
     }
 
-    // CUDA Timing and Encryption
     enable_logging = 0;
     for (int iter = 0; iter < num_iterations && success; ++iter) {
         cudaEvent_t start, stop;
@@ -488,7 +485,6 @@ void test_file_encryption(void) {
             break;
         }
 
-        // Process each stream
         for (int i = 0; i < NUM_STREAMS && success; ++i) {
             size_t stream_blocks = (i == NUM_STREAMS - 1) ? (plaintext_count - i * blocks_per_stream) : blocks_per_stream;
             if (stream_blocks == 0) continue;
@@ -504,7 +500,7 @@ void test_file_encryption(void) {
             }
 
             int threads_per_block = 256;
-            int blocks = (stream_blocks + threads_per_block - 1) / threads_per_block;
+            int blocks = ((stream_blocks + 4 - 1) / 4 + threads_per_block - 1) / threads_per_block;
             aes_encrypt_kernel<<<blocks, threads_per_block, 0, streams[i]>>>(d_plaintexts[i], d_ciphertexts[i], stream_blocks);
             err = cudaGetLastError();
             if (err != cudaSuccess) {
@@ -523,16 +519,10 @@ void test_file_encryption(void) {
             }
         }
 
-        // Synchronize all streams
-        for (int i = 0; i < NUM_STREAMS && success; ++i) {
-            if (d_plaintexts[i]) {
-                err = cudaStreamSynchronize(streams[i]);
-                if (err != cudaSuccess) {
-                    fprintf(stderr, "CUDA Error: Failed to synchronize stream %d: %s\n", i, cudaGetErrorString(err));
-                    success = false;
-                    break;
-                }
-            }
+        err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA Error: Failed to synchronize device: %s\n", cudaGetErrorString(err));
+            success = false;
         }
 
         if (success) {
@@ -561,7 +551,6 @@ void test_file_encryption(void) {
     }
 
     if (success) {
-        // Output results
         for (size_t i = 0; i < plaintext_count; ++i) {
             char plaintext_hex[BLOCK_SIZE * 2 + 1];
             bytes_to_hex(plaintexts[i], plaintext_hex);
@@ -579,12 +568,10 @@ void test_file_encryption(void) {
             printf("===============================================================\n");
         }
 
-        // Print timing results
         for (int i = 0; i < num_iterations; ++i)
             printf("Iteration %d: %.3f ms\n", i + 1, times[i]);
         printf("Average: %.3f ms\n", total_time / num_iterations);
 
-        // CPU encryption with logging for detailed output
         enable_logging = 1;
         for (size_t i = 0; i < plaintext_count; ++i) {
             char idx[16];
@@ -597,7 +584,6 @@ void test_file_encryption(void) {
         }
     }
 
-    // Free resources
     cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
 }
 
