@@ -329,7 +329,7 @@ int read_keys(const char *filename, uint8_t keys[][BLOCK_SIZE], size_t *count) {
             if (!isspace((unsigned char)line[i])) line[j++] = line[i];
         line[j] = '\0';
         if (j == 0) continue;
-        printf("Reading line %zu: %s\n", line_num, line);
+        //printf("Reading line %zu: %s\n", line_num, line);
         if (!hex_to_key(line, keys[*count])) {
             fprintf(stderr, "Error: Failed to parse hex string at line %zu\n", line_num);
             fclose(file);
@@ -551,7 +551,7 @@ void test_file_encryption(void) {
     }
 
     if (success) {
-        for (size_t i = 0; i < plaintext_count; ++i) {
+     /*   for (size_t i = 0; i < plaintext_count; ++i) {
             char plaintext_hex[BLOCK_SIZE * 2 + 1];
             bytes_to_hex(plaintexts[i], plaintext_hex);
             printf("Input %zu\n", i + 1);
@@ -565,7 +565,7 @@ void test_file_encryption(void) {
             printf("Expected Ciphertext: %s\n", expected_ct_hex);
             int match = memcmp(ciphertexts[i], expected_ciphertexts[i], BLOCK_SIZE) == 0;
             printf("Match: %s\n", match ? "Yes" : "No");
-            printf("===============================================================\n");
+            printf("===============================================================\n");*/
         }
 
         for (int i = 0; i < num_iterations; ++i)
