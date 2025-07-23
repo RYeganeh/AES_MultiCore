@@ -36,7 +36,7 @@ static const uint8_t rcon[10] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
 #define MAX_BLOCKS 10000
 #define MAX_OUTPUTS 50
 #define MAX_LINE 256
-#define NUM_STREAMS 4
+#define NUM_STREAMS 16
 
 struct AES128_Context {
     uint8_t round_keys[MAX_ROUNDS][4][4];
@@ -221,13 +221,13 @@ void record_state(struct AES128_Context *ctx, const char *index, const char *lab
     if (!enable_logging || ctx->output_count >= MAX_OUTPUTS) return;
     char hex[BLOCK_SIZE * 2 + 1];
     bytes_to_hex(block, hex);
-    snprintf(ctx->round_outputs[ctx->output_count++], MAX_LINE,
-             "input%s | %s %s", index, label, hex);
+    // snprintf(ctx->round_outputs[ctx->output_count++], MAX_LINE,
+            //  "input%s | %s %s", index, label, hex);
 }
 
 void bytes_to_hex(const uint8_t *bytes, char *hex) {
     for (size_t i = 0; i < BLOCK_SIZE; ++i)
-        snprintf(hex + i * 2, 3, "%02x", bytes[i]);
+        // snprintf(hex + i * 2, 3, "%02x", bytes[i]);
     hex[BLOCK_SIZE * 2] = '\0';
 }
 
@@ -249,39 +249,40 @@ void aes_encrypt_with_output(struct AES128_Context *ctx, const uint8_t *plaintex
     record_state(ctx, index, "round[ 0].input", plaintext);
     record_state(ctx, index, "round[ 0].k_sch", (uint8_t *)ctx->round_keys[0]);
     add_round_key(state, ctx->round_keys[0]);
-    snprintf(label, sizeof(label), "round[ 1].start");
+    // snprintf(label, sizeof(label), "round[ 1].start");
     record_state(ctx, index, label, (uint8_t *)state);
 
     for (size_t round = 1; round < NUM_ROUNDS; ++round) {
         sub_bytes(state);
-        snprintf(label, sizeof(label), "round[%2zu].s_box", round);
+        // snprintf(label, sizeof(label), "round[%2zu].s_box", round);
         record_state(ctx, index, label, (uint8_t *)state);
         shift_rows(state);
-        snprintf(label, sizeof(label), "round[%2zu].s_row", round);
+        // snprintf(label, sizeof(label), "round[%2zu].s_row", round);
         record_state(ctx, index, label, (uint8_t *)state);
         mix_columns(state);
-        snprintf(label, sizeof(label), "round[%2zu].m_col", round);
+        // snprintf(label, sizeof(label), "round[%2zu].m_col", round);
         record_state(ctx, index, label, (uint8_t *)state);
-        snprintf(label, sizeof(label), "round[%2zu].k_sch", round);
+        // snprintf(label, sizeof(label), "round[%2zu].k_sch", round);
         record_state(ctx, index, label, (uint8_t *)ctx->round_keys[round]);
         add_round_key(state, ctx->round_keys[round]);
-        snprintf(label, sizeof(label), "round[%2zu].start", round + 1);
+        // snprintf(label, sizeof(label), "round[%2zu].start", round + 1);
         record_state(ctx, index, label, (uint8_t *)state);
     }
 
     sub_bytes(state);
-    snprintf(label, sizeof(label), "round[10].s_box");
+    // snprintf(label, sizeof(label), "round[10].s_box");
     record_state(ctx, index, label, (uint8_t *)state);
     shift_rows(state);
-    snprintf(label, sizeof(label), "round[10].s_row");
+    // snprintf(label, sizeof(label), "round[10].s_row");
     record_state(ctx, index, label, (uint8_t *)state);
-    snprintf(label, sizeof(label), "round[10].k_sch");
+    // snprintf(label, sizeof(label), "round[10].k_sch");
     record_state(ctx, index, label, (uint8_t *)ctx->round_keys[10]);
     add_round_key(state, ctx->round_keys[10]);
-    snprintf(label, sizeof(label), "round[10].output");
+    // snprintf(label, sizeof(label), "round[10].output");
     record_state(ctx, index, label, (uint8_t *)state);
 
     state_to_bytes(state, ciphertext);
+    
 }
 
 int hex_to_key(const char *hex, uint8_t *key) {
@@ -345,142 +346,132 @@ void cleanup_resources(cudaStream_t *streams, uint8_t *d_plaintexts[], uint8_t *
     free(aes_ctx);
 }
 
+
 void test_file_encryption(void) {
     const int num_iterations = 5;
     float times[5] = {0};
     float total_time = 0;
     bool success = true;
 
-    cudaStream_t streams[NUM_STREAMS] = {0};
-    uint8_t *d_plaintexts[NUM_STREAMS] = {NULL};
-    uint8_t *d_ciphertexts[NUM_STREAMS] = {NULL};
+    cudaStream_t streams[NUM_STREAMS];
+    cudaEvent_t stream_done[NUM_STREAMS];
+    uint8_t *d_all_plaintexts = NULL, *d_all_ciphertexts = NULL;
     uint8_t key[BLOCK_SIZE] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
                               0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
     size_t plaintext_count = 0;
     size_t ciphertext_count = 0;
     cudaError_t err;
 
-    uint8_t (*plaintexts)[BLOCK_SIZE] = (uint8_t (*)[BLOCK_SIZE])malloc(MAX_BLOCKS * BLOCK_SIZE);
-    uint8_t (*expected_ciphertexts)[BLOCK_SIZE] = (uint8_t (*)[BLOCK_SIZE])malloc(MAX_BLOCKS * BLOCK_SIZE);
-    uint8_t (*ciphertexts)[BLOCK_SIZE] = (uint8_t (*)[BLOCK_SIZE])malloc(MAX_BLOCKS * BLOCK_SIZE);
+    uint8_t (*plaintexts)[BLOCK_SIZE];
+    uint8_t (*expected_ciphertexts)[BLOCK_SIZE];
+    uint8_t (*ciphertexts)[BLOCK_SIZE];
+    cudaHostAlloc(&plaintexts, MAX_BLOCKS * BLOCK_SIZE * sizeof(uint8_t), cudaHostAllocDefault);
+    cudaHostAlloc(&expected_ciphertexts, MAX_BLOCKS * BLOCK_SIZE * sizeof(uint8_t), cudaHostAllocDefault);
+    cudaHostAlloc(&ciphertexts, MAX_BLOCKS * BLOCK_SIZE * sizeof(uint8_t), cudaHostAllocDefault);
     struct AES128_Context *aes_ctx = (struct AES128_Context *)malloc(MAX_BLOCKS * sizeof(struct AES128_Context));
 
     if (!plaintexts || !expected_ciphertexts || !ciphertexts || !aes_ctx) {
         fprintf(stderr, "Error: Memory allocation failed\n");
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
-
-    char key_hex[BLOCK_SIZE * 2 + 1];
-    bytes_to_hex(key, key_hex);
 
     printf("Reading plaintexts from plaintext_10000_blocks.txt\n");
     if (!read_keys("plaintext_10000_blocks.txt", plaintexts, &plaintext_count)) {
         fprintf(stderr, "Error: Failed to read plaintexts\n");
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
     printf("Reading ciphertexts from ciphertexts_10000_blocks.txt\n");
     if (!read_keys("ciphertexts_10000_blocks.txt", expected_ciphertexts, &ciphertext_count)) {
         fprintf(stderr, "Error: Failed to read ciphertexts\n");
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
     if (plaintext_count == 0 || plaintext_count != ciphertext_count) {
         fprintf(stderr, "Error: Mismatch in number of plaintexts (%zu) and ciphertexts (%zu)\n",
                 plaintext_count, ciphertext_count);
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
-        return;
-    }
-    if (plaintext_count > MAX_BLOCKS) {
-        fprintf(stderr, "Error: Too many blocks (%zu > %d)\n", plaintext_count, MAX_BLOCKS);
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
     err = cudaSetDevice(0);
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to set device: %s\n", cudaGetErrorString(err));
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
     uint8_t round_keys_flat[176];
     key_expansion_to_flat(key, round_keys_flat);
-
     err = cudaMemcpyToSymbol(d_s_box, s_box, 256 * sizeof(uint8_t));
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to copy S-box: %s\n", cudaGetErrorString(err));
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
     err = cudaMemcpyToSymbol(d_round_keys, round_keys_flat, 176 * sizeof(uint8_t));
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA Error: Failed to copy round keys: %s\n", cudaGetErrorString(err));
-        cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
         return;
     }
 
-    size_t blocks_per_stream = (plaintext_count + NUM_STREAMS - 1) / NUM_STREAMS;
+    err = cudaMalloc(&d_all_plaintexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA Error: Failed to allocate d_all_plaintexts: %s\n", cudaGetErrorString(err));
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        return;
+    }
+    err = cudaMalloc(&d_all_ciphertexts, plaintext_count * BLOCK_SIZE * sizeof(uint8_t));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA Error: Failed to allocate d_all_ciphertexts: %s\n", cudaGetErrorString(err));
+        cudaFree(d_all_plaintexts);
+        cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+        return;
+    }
+
     for (int i = 0; i < NUM_STREAMS; ++i) {
         err = cudaStreamCreate(&streams[i]);
         if (err != cudaSuccess) {
             fprintf(stderr, "CUDA Error: Failed to create stream %d: %s\n", i, cudaGetErrorString(err));
-            cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+            cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+            return;
+        }
+        err = cudaEventCreate(&stream_done[i]);
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA Error: Failed to create event %d: %s\n", i, cudaGetErrorString(err));
+            cleanup_resources(streams, NULL, NULL, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
             return;
         }
     }
 
+    size_t base_blocks = plaintext_count / NUM_STREAMS;
+ size_t extra_blocks = plaintext_count % NUM_STREAMS;
+    size_t stream_blocks[NUM_STREAMS];
     for (int i = 0; i < NUM_STREAMS; ++i) {
-        size_t stream_blocks = (i == NUM_STREAMS - 1) ? (plaintext_count - i * blocks_per_stream) : blocks_per_stream;
-        if (stream_blocks == 0) continue;
-
-        err = cudaMalloc(&d_plaintexts[i], stream_blocks * BLOCK_SIZE * sizeof(uint8_t));
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to allocate d_plaintexts for stream %d: %s\n", i, cudaGetErrorString(err));
-            cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
-            return;
-        }
-        err = cudaMalloc(&d_ciphertexts[i], stream_blocks * BLOCK_SIZE * sizeof(uint8_t));
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to allocate d_ciphertexts for stream %d: %s\n", i, cudaGetErrorString(err));
-            cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
-            return;
-        }
+        stream_blocks[i] = base_blocks + (i < extra_blocks ? 1 : 0);
     }
 
     enable_logging = 0;
     for (int iter = 0; iter < num_iterations && success; ++iter) {
         cudaEvent_t start, stop;
-        err = cudaEventCreate(&start);
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to create start event: %s\n", cudaGetErrorString(err));
-            success = false;
-            break;
-        }
-        err = cudaEventCreate(&stop);
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to create stop event: %s\n", cudaGetErrorString(err));
-            cudaEventDestroy(start);
-            success = false;
-            break;
-        }
-        err = cudaEventRecord(start, 0);
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to record start event: %s\n", cudaGetErrorString(err));
-            cudaEventDestroy(start);
-            cudaEventDestroy(stop);
-            success = false;
-            break;
-        }
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+        cudaEventRecord(start, 0);
 
+        size_t offset = 0;
         for (int i = 0; i < NUM_STREAMS && success; ++i) {
-            size_t stream_blocks = (i == NUM_STREAMS - 1) ? (plaintext_count - i * blocks_per_stream) : blocks_per_stream;
-            if (stream_blocks == 0) continue;
+            if (stream_blocks[i] == 0) continue;
 
-            size_t offset = i * blocks_per_stream;
-            err = cudaMemcpyAsync(d_plaintexts[i], &plaintexts[offset], 
-                                 stream_blocks * BLOCK_SIZE * sizeof(uint8_t), 
+            if (offset + stream_blocks[i] * BLOCK_SIZE > plaintext_count * BLOCK_SIZE) {
+                fprintf(stderr, "Error: Invalid offset for stream %d\n", i);
+                success = false;
+                break;
+            }
+
+            err = cudaMemcpyAsync(d_all_plaintexts + offset, (uint8_t *)plaintexts + offset,
+                                 stream_blocks[i] * BLOCK_SIZE * sizeof(uint8_t),
                                  cudaMemcpyHostToDevice, streams[i]);
             if (err != cudaSuccess) {
                 fprintf(stderr, "CUDA Error: Failed to copy plaintexts for stream %d: %s\n", i, cudaGetErrorString(err));
@@ -489,8 +480,8 @@ void test_file_encryption(void) {
             }
 
             int threads_per_block = 256;
-            int blocks = ((stream_blocks + 4 - 1) / 4 + threads_per_block - 1) / threads_per_block;
-            aes_encrypt_kernel<<<blocks, threads_per_block, 0, streams[i]>>>(d_plaintexts[i], d_ciphertexts[i], stream_blocks);
+            int blocks = (stream_blocks[i] + threads_per_block - 1) / threads_per_block;
+            aes_encrypt_kernel<<<blocks, threads_per_block, 0, streams[i]>>>(d_all_plaintexts + offset, d_all_ciphertexts + offset, stream_blocks[i]);
             err = cudaGetLastError();
             if (err != cudaSuccess) {
                 fprintf(stderr, "CUDA Kernel Error in stream %d: %s\n", i, cudaGetErrorString(err));
@@ -498,41 +489,38 @@ void test_file_encryption(void) {
                 break;
             }
 
-            err = cudaMemcpyAsync(&ciphertexts[offset], d_ciphertexts[i], 
-                                 stream_blocks * BLOCK_SIZE * sizeof(uint8_t), 
+            err = cudaMemcpyAsync((uint8_t *)ciphertexts + offset, d_all_ciphertexts + offset,
+                                 stream_blocks[i] * BLOCK_SIZE * sizeof(uint8_t),
                                  cudaMemcpyDeviceToHost, streams[i]);
             if (err != cudaSuccess) {
                 fprintf(stderr, "CUDA Error: Failed to copy ciphertexts for stream %d: %s\n", i, cudaGetErrorString(err));
                 success = false;
                 break;
             }
+
+            cudaEventRecord(stream_done[i], streams[i]);
+            offset += stream_blocks[i] * BLOCK_SIZE;
         }
 
-        err = cudaDeviceSynchronize();
-        if (err != cudaSuccess) {
-            fprintf(stderr, "CUDA Error: Failed to synchronize device: %s\n", cudaGetErrorString(err));
-            success = false;
+        for (int i = 0; i < NUM_STREAMS && success; ++i) {
+            if (stream_blocks[i] > 0) {
+                err = cudaEventSynchronize(stream_done[i]);
+                if (err != cudaSuccess) {
+                    fprintf(stderr, "CUDA Error: Failed to synchronize stream %d: %s\n", i, cudaGetErrorString(err));
+                    success = false;
+                }
+            }
         }
 
         if (success) {
-            err = cudaEventRecord(stop, 0);
+            cudaEventRecord(stop, 0);
+            cudaEventSynchronize(stop);
+            err = cudaEventElapsedTime(&times[iter], start, stop);
             if (err != cudaSuccess) {
-                fprintf(stderr, "CUDA Error: Failed to record stop event: %s\n", cudaGetErrorString(err));
+                fprintf(stderr, "CUDA Error: Failed to measure elapsed time: %s\n", cudaGetErrorString(err));
                 success = false;
             } else {
-                err = cudaEventSynchronize(stop);
-                if (err != cudaSuccess) {
-                    fprintf(stderr, "CUDA Error: Failed to synchronize stop event: %s\n", cudaGetErrorString(err));
-                    success = false;
-                } else {
-                    err = cudaEventElapsedTime(&times[iter], start, stop);
-                    if (err != cudaSuccess) {
-                        fprintf(stderr, "CUDA Error: Failed to measure elapsed time: %s\n", cudaGetErrorString(err));
-                        success = false;
-                    } else {
-                        total_time += times[iter];
-                    }
-                }
+                total_time += times[iter];
             }
         }
         cudaEventDestroy(start);
@@ -540,40 +528,23 @@ void test_file_encryption(void) {
     }
 
     if (success) {
-     /*   for (size_t i = 0; i < plaintext_count; ++i) {
-            char plaintext_hex[BLOCK_SIZE * 2 + 1];
-            bytes_to_hex(plaintexts[i], plaintext_hex);
-            printf("Input %zu\n", i + 1);
-            printf("Plaintext: %s\n", plaintext_hex);
-            printf("Key: %s\n", key_hex);
-            char ct_hex[BLOCK_SIZE * 2 + 1];
-            bytes_to_hex(ciphertexts[i], ct_hex);
-            printf("Ciphertext: %s\n", ct_hex);
-            char expected_ct_hex[BLOCK_SIZE * 2 + 1];
-            bytes_to_hex(expected_ciphertexts[i], expected_ct_hex);
-            printf("Expected Ciphertext: %s\n", expected_ct_hex);
-            int match = memcmp(ciphertexts[i], expected_ciphertexts[i], BLOCK_SIZE) == 0;
-            printf("Match: %s\n", match ? "Yes" : "No");
-            printf("===============================================================\n");
-        }*/
-
         for (int i = 0; i < num_iterations; ++i)
             printf("Iteration %d: %.3f ms\n", i + 1, times[i]);
         printf("Average: %.3f ms\n", total_time / num_iterations);
-
-        enable_logging = 1;
-        for (size_t i = 0; i < plaintext_count; ++i) {
-            char idx[16];
-            snprintf(idx, sizeof(idx), "%zu", i);
-            aes_init(&aes_ctx[i], key);
-            aes_encrypt_with_output(&aes_ctx[i], plaintexts[i], ciphertexts[i], idx);
-            for (int j = 0; j < aes_ctx[i].output_count; ++j)
-                printf("%s\n", aes_ctx[i].round_outputs[j]);
-            printf("===============================================================\n");
-        }
     }
 
-    cleanup_resources(streams, d_plaintexts, d_ciphertexts, plaintexts, expected_ciphertexts, ciphertexts, aes_ctx);
+    for (int i = 0; i < NUM_STREAMS; ++i) {
+        if (stream_blocks[i] > 0) {
+            cudaStreamDestroy(streams[i]);
+            cudaEventDestroy(stream_done[i]);
+        }
+    }
+    cudaFree(d_all_plaintexts);
+    cudaFree(d_all_ciphertexts);
+    cudaFreeHost(plaintexts);
+    cudaFreeHost(expected_ciphertexts);
+    cudaFreeHost(ciphertexts);
+    free(aes_ctx);
 }
 
 int main(void) {
