@@ -113,17 +113,6 @@ __device__ void add_round_key_device(uint8_t state[4][4], const uint8_t *round_k
 }
 
 __global__ void aes_encrypt_kernel(const uint8_t* plaintexts, uint8_t* ciphertexts, int num_blocks) {
-    __shared__ uint8_t s_box_shared[256];
-    __shared__ uint8_t round_keys_shared[176];
-
-    if (threadIdx.x < 256) {
-        s_box_shared[threadIdx.x] = d_s_box[threadIdx.x];
-    }
-    if (threadIdx.x < 176) {
-        round_keys_shared[threadIdx.x] = d_round_keys[threadIdx.x];
-    }
-    __syncthreads();
-
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const int blocks_per_thread = 4;
 
@@ -132,16 +121,16 @@ __global__ void aes_encrypt_kernel(const uint8_t* plaintexts, uint8_t* ciphertex
         uint8_t state[4][4];
         bytes_to_state_device(&plaintexts[block_idx * 16], state);
 
-        add_round_key_device(state, round_keys_shared);
+        add_round_key_device(state, d_round_keys);
         for (int round = 1; round < NUM_ROUNDS; ++round) {
             sub_bytes_device(state);
             shift_rows_device(state);
             mix_columns_device(state);
-            add_round_key_device(state, round_keys_shared + round * 16);
+            add_round_key_device(state, d_round_keys + round * 16);
         }
         sub_bytes_device(state);
         shift_rows_device(state);
-        add_round_key_device(state, round_keys_shared + NUM_ROUNDS * 16);
+        add_round_key_device(state, d_round_keys + NUM_ROUNDS * 16);
 
         state_to_bytes_device(state, &ciphertexts[block_idx * 16]);
     }
