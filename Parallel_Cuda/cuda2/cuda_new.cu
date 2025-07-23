@@ -565,8 +565,8 @@ void test_file_encryption(void) {
             printf("Expected Ciphertext: %s\n", expected_ct_hex);
             int match = memcmp(ciphertexts[i], expected_ciphertexts[i], BLOCK_SIZE) == 0;
             printf("Match: %s\n", match ? "Yes" : "No");
-            printf("===============================================================\n");*/
-        }
+            printf("===============================================================\n");
+        }*/
 
         for (int i = 0; i < num_iterations; ++i)
             printf("Iteration %d: %.3f ms\n", i + 1, times[i]);
